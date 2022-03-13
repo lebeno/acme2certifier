@@ -137,7 +137,7 @@ class CAhandler(object):
 
         cert_id = None
         if 'certificates' in cert_list:
-            for cert in cert_list['certificates']:
+            for cert in sorted(cert_list['certificates'], key=lambda i: i['certificateId'], reverse=True):
                 # lets compare the SAN (this is more reliable than comparing the CN (certbot does not set a CN
                 if san_list and 'subjectAltName' in cert:
                     result = self._san_compare(san_list, cert['subjectAltName'])
