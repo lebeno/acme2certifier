@@ -121,30 +121,47 @@ class CAhandler(object):
         self.logger.debug('CAhandler._cert_bundle_build() ended')
         return(error, cert_bundle, cert_raw)
 
+    def _cert_list_fetch(self, url):
+        """ fetch certificate list and consider pagination """
+        self.logger.debug('CAhandler._cert_list_fetch({0})'.format(url))
+
+        cert_list = []
+        while(url):
+            _tmp_cert_list = requests.get(url, headers=self.headers, verify=self.ca_bundle, proxies=self.proxy).json()
+            if 'certificates' in _tmp_cert_list:
+                cert_list.extend(_tmp_cert_list['certificates'])
+                if 'next' in _tmp_cert_list and _tmp_cert_list['next']:
+                    url = self.api_host + _tmp_cert_list['next']
+                else:
+                    url = None
+
+        self.logger.debug('CAhandler._cert_list_fetch() ended with {0} entries'.format(len(cert_list)))
+        return cert_list
+
     def _cert_id_lookup(self, csr_cn, san_list=None):
         """ lookup cert id based on CN """
         self.logger.debug('CAhandler._cert_id_lookup({0}:{1})'.format(csr_cn, san_list))
 
+        # get certificates
         try:
-            # get certificates
             if csr_cn:
-                cert_list = requests.get(self.api_host + '/certificates?freeText==' + str(csr_cn) + '&stateCurrent=false&stateHistory=false&stateWaiting=false&stateManual=false&stateUnattached=false&expiresAfter=%22%22&expiresBefore=%22%22&sortAttribute=createdAt&sortOrder=desc&containerId=' + str(self.tsg_info_dic['id']), headers=self.headers, verify=self.ca_bundle, proxies=self.proxy).json()
+                url = self.api_host + '/certificates?freeText==' + str(csr_cn) + '&stateCurrent=false&stateHistory=false&stateWaiting=false&stateManual=false&stateUnattached=false&expiresAfter=%22%22&expiresBefore=%22%22&sortAttribute=createdAt&sortOrder=desc&containerId=' + str(self.tsg_info_dic['id'])
             else:
-                cert_list = requests.get(self.api_host + '/certificates?stateCurrent=false&stateHistory=false&stateWaiting=false&stateManual=false&stateUnattached=false&expiresAfter=%22%22&expiresBefore=%22%22&sortAttribute=createdAt&sortOrder=desc&containerId=' + str(self.tsg_info_dic['id']), headers=self.headers, verify=self.ca_bundle, proxies=self.proxy).json()
+                url = self.api_host + '/certificates?stateCurrent=false&stateHistory=false&stateWaiting=false&stateManual=false&stateUnattached=false&expiresAfter=%22%22&expiresBefore=%22%22&sortAttribute=createdAt&sortOrder=desc&containerId=' + str(self.tsg_info_dic['id'])
+            cert_list = self._cert_list_fetch(url)
         except Exception as err_:
             self.logger.error('CAhandler._cert_id_lookup() returned error: {0}'.format(str(err_)))
             cert_list = []
 
         cert_id = None
-        if 'certificates' in cert_list:
-            for cert in sorted(cert_list['certificates'], key=lambda i: i['certificateId'], reverse=True):
+        if cert_list:
+            for cert in sorted(cert_list, key=lambda i: i['certificateId'], reverse=True):
                 # lets compare the SAN (this is more reliable than comparing the CN (certbot does not set a CN
                 if san_list and 'subjectAltName' in cert:
                     result = self._san_compare(san_list, cert['subjectAltName'])
                     if result and 'certificateId' in cert:
                         cert_id = cert['certificateId']
                         break
-                # print(cert['certificateId'], cert['sortedSubjectName'], cert['subjectAltName'], cert['sortedIssuerSubjectName'])
         else:
             self.logger.error('_cert_id_lookup(): no certificates found for {0}'.format(csr_cn))
 
